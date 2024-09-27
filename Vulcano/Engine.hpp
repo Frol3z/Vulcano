@@ -16,6 +16,16 @@ private:
 	Window m_window;
 
 	VkInstance m_instance;
-	VkDebugUtilsMessengerEXT m_debugMessenger;
 	bool m_bUseValidationLayers = true;
+	VkDebugUtilsMessengerEXT m_debugMessenger;
+	VkSurfaceKHR m_surface;
+	VkPhysicalDevice m_physicalDevice;
+	VkDevice m_device;
+
+	// Swapchain related stuff (maybe later move it to a dedicated class)
+	VkSwapchainKHR m_swapchain;
+	VkFormat m_swapchainImageFormat;
+	std::vector<VkImage> m_swapchainImages;
+	std::vector<VkImageView> m_swapchainImageViews;
+	VkExtent2D m_swapchainExtent;
 };

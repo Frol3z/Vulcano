@@ -8,7 +8,7 @@ Window::Window() {
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	m_pWindow = glfwCreateWindow(640, 480, "Vulcano", NULL, NULL);
+	m_pWindow = glfwCreateWindow(WIDTH, HEIGHT, "Vulcano", NULL, NULL);
  }
 
 Window::~Window() {
