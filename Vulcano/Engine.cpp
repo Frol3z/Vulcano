@@ -3,15 +3,34 @@
 #include <iostream>
 #include "vendors/VkBootstrap.h"
 
+#define VK_CHECK(x)														\
+	do																	\
+	{																	\
+		VkResult err = x;												\
+		if (err)														\
+		{																\
+			std::cout <<"Detected Vulkan error: " << err << std::endl;	\
+			abort();													\
+		}																\
+	} while (0)
+
 Engine::Engine() {
-	init();
+	initVulkan();
+	initSwapchain();
+	initCommands();
 }
 
 Engine::~Engine() {
 	clean();
 }
 
-void Engine::init() {
+void Engine::run() {
+	while (!m_window.shouldClose()) {
+		m_window.pollEvents();
+	}
+}
+
+void Engine::initVulkan() {
 	// Build the Vulkan instance
 	vkb::InstanceBuilder instanceBuilder;
 	auto returnedInstance = instanceBuilder.set_app_name("Vulcano")
@@ -57,6 +76,52 @@ void Engine::init() {
 	m_physicalDevice = vkbPhysicalDevice.physical_device;
 	m_device = vkbDevice.device;
 
+	// Get a graphic queue
+	m_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+	m_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+}
+
+void Engine::initSwapchain() {
+	createSwapchain(m_window.WIDTH, m_window.HEIGHT);
+}
+
+void Engine::initCommands() {
+	VkCommandPoolCreateInfo commandPoolInfo = {};
+	commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolInfo.pNext = nullptr;
+	commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	commandPoolInfo.queueFamilyIndex = m_graphicsQueueFamily;
+
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		VK_CHECK(vkCreateCommandPool(m_device, &commandPoolInfo, nullptr, &m_frames[i].m_commandPool));
+
+		VkCommandBufferAllocateInfo cmdAllocInfo = {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.pNext = nullptr;
+		cmdAllocInfo.commandPool = m_frames[i].m_commandPool;
+		cmdAllocInfo.commandBufferCount = 1;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+		VK_CHECK(vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &m_frames[i].m_mainCommandBuffer));
+	}
+}
+
+void Engine::clean() {
+
+	vkDeviceWaitIdle(m_device);
+
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		vkDestroyCommandPool(m_device, m_frames[i].m_commandPool, nullptr);
+	}
+
+	destroySwapchain();
+	vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+	vkDestroyDevice(m_device, nullptr);
+	vkb::destroy_debug_utils_messenger(m_instance, m_debugMessenger);
+	vkDestroyInstance(m_instance, nullptr);
+}
+
+void Engine::createSwapchain(uint32_t width, uint32_t height) {
 	// Build swapchain
 	vkb::SwapchainBuilder swapchainBuilder(m_physicalDevice, m_device, m_surface);
 	m_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
@@ -73,22 +138,9 @@ void Engine::init() {
 	m_swapchainImageViews = vkbSwapchain.get_image_views().value();
 }
 
-void Engine::run() {
-	while (!m_window.shouldClose()) {
-		m_window.pollEvents();
-	}
-}
-
-void Engine::clean() {
-
-	// Destroy swapchain
+void Engine::destroySwapchain() {
 	vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
 	for (int i = 0; i < m_swapchainImageViews.size(); i++) {
 		vkDestroyImageView(m_device, m_swapchainImageViews[i], nullptr);
 	}
-
-	vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-	vkDestroyDevice(m_device, nullptr);
-	vkb::destroy_debug_utils_messenger(m_instance, m_debugMessenger);
-	vkDestroyInstance(m_instance, nullptr);
 }
