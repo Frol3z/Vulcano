@@ -145,6 +145,7 @@
   <ItemGroup>
     <ClCompile Include="Engine.cpp" />
     <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Utils.cpp" />
     <ClCompile Include="vendors\VkBootstrap.cpp" />
     <ClCompile Include="Window.cpp" />
   </ItemGroup>
@@ -153,6 +154,7 @@
     <ClInclude Include="vendors\VkBootstrap.h" />
     <ClInclude Include="vendors\VkBootstrapDispatch.h" />
     <ClInclude Include="Window.hpp" />
+    <ClInclude Include="Utils.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

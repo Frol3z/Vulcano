@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include "vendors/VkBootstrap.h"
+#include "Utils.hpp"
 
 #define VK_CHECK(x)														\
 	do																	\
@@ -18,6 +19,7 @@ Engine::Engine() {
 	initVulkan();
 	initSwapchain();
 	initCommands();
+	initSyncStructures();
 }
 
 Engine::~Engine() {
@@ -27,6 +29,7 @@ Engine::~Engine() {
 void Engine::run() {
 	while (!m_window.shouldClose()) {
 		m_window.pollEvents();
+		draw();
 	}
 }
 
@@ -106,12 +109,36 @@ void Engine::initCommands() {
 	}
 }
 
+void Engine::initSyncStructures() {
+	VkFenceCreateInfo fenceInfo = {};
+	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceInfo.pNext = nullptr;
+	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+	VkSemaphoreCreateInfo semaphoreInfo = {};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	semaphoreInfo.pNext = nullptr;
+	semaphoreInfo.flags = 0;
+
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		VK_CHECK(vkCreateFence(m_device, &fenceInfo, nullptr, &m_frames[i].m_renderFence));
+
+		VK_CHECK(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_frames[i].m_renderSemaphore));
+		VK_CHECK(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_frames[i].m_swapchainSemaphore));
+	}
+}
+
 void Engine::clean() {
 
 	vkDeviceWaitIdle(m_device);
 
 	for (int i = 0; i < FRAME_OVERLAP; i++) {
 		vkDestroyCommandPool(m_device, m_frames[i].m_commandPool, nullptr);
+
+		// Destroy sync objects
+		vkDestroyFence(m_device, m_frames[i].m_renderFence, nullptr);
+		vkDestroySemaphore(m_device, m_frames[i].m_renderSemaphore, nullptr);
+		vkDestroySemaphore(m_device, m_frames[i].m_swapchainSemaphore, nullptr);
 	}
 
 	destroySwapchain();
@@ -119,6 +146,75 @@ void Engine::clean() {
 	vkDestroyDevice(m_device, nullptr);
 	vkb::destroy_debug_utils_messenger(m_instance, m_debugMessenger);
 	vkDestroyInstance(m_instance, nullptr);
+}
+
+void Engine::draw() {
+	// Wait until GPU has finished rendering the last frame (timeout of 1s)
+	VK_CHECK(vkWaitForFences(m_device, 1, &getCurrentFrame().m_renderFence, true, 1000000000));
+	VK_CHECK(vkResetFences(m_device, 1, &getCurrentFrame().m_renderFence));
+
+	// Request image from the swapchain
+	uint32_t swapchainImageIndex;
+	VK_CHECK(vkAcquireNextImageKHR(m_device, m_swapchain, 1000000000, getCurrentFrame().m_swapchainSemaphore, 
+		nullptr, &swapchainImageIndex)
+	);
+
+	// Resetting command buffer
+	VkCommandBuffer cmd = getCurrentFrame().m_mainCommandBuffer;
+	VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+	// Begin command buffer recording
+	VkCommandBufferBeginInfo cmdBeginInfo = {};
+	cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	cmdBeginInfo.pNext = nullptr;
+	cmdBeginInfo.pInheritanceInfo = nullptr;
+	cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+	// Make the swapchain image writeable
+	Utils::transitionImage(cmd, m_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+	// Color flash
+	VkClearColorValue clearValue;
+	float flash = std::abs(std::sin(m_frameNumber / 120.f));
+	clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+
+	VkImageSubresourceRange clearRange = Utils::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+	//Cclear image
+	vkCmdClearColorImage(cmd, m_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+	// Make the swapchain image to presentable
+	Utils::transitionImage(cmd, m_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+	// End command buffer recording
+	VK_CHECK(vkEndCommandBuffer(cmd));
+
+
+	// Preparing for submission to the queue 
+	VkCommandBufferSubmitInfo cmdinfo = Utils::commandBufferSubmitInfo(cmd);
+	VkSemaphoreSubmitInfo waitInfo = Utils::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, getCurrentFrame().m_swapchainSemaphore);
+	VkSemaphoreSubmitInfo signalInfo = Utils::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, getCurrentFrame().m_renderSemaphore);
+
+	VkSubmitInfo2 submit = Utils::submitInfo(&cmdinfo, &signalInfo, &waitInfo);
+
+	// Submit command buffer to the queue and execute it
+	VK_CHECK(vkQueueSubmit2(m_graphicsQueue, 1, &submit, getCurrentFrame().m_renderFence));
+
+	// Present image to the screen
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.pNext = nullptr;
+	presentInfo.pSwapchains = &m_swapchain;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pWaitSemaphores = &getCurrentFrame().m_renderSemaphore;
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pImageIndices = &swapchainImageIndex;
+
+	VK_CHECK(vkQueuePresentKHR(m_graphicsQueue, &presentInfo));
+
+	// Increase the number of frames drawn
+	m_frameNumber++;
 }
 
 void Engine::createSwapchain(uint32_t width, uint32_t height) {

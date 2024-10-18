@@ -7,6 +7,10 @@
 struct FrameData {
 	VkCommandPool m_commandPool;
 	VkCommandBuffer m_mainCommandBuffer;
+
+	// Synchronization stuff
+	VkSemaphore m_swapchainSemaphore, m_renderSemaphore;
+	VkFence m_renderFence;
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -22,7 +26,10 @@ private:
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
+	void initSyncStructures();
 	void clean();
+
+	void draw();
 
 	void createSwapchain(uint32_t width, uint32_t height);
 	void destroySwapchain();
